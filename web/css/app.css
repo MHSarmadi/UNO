@@ -1,0 +1,13 @@
+[v-cloak] {
+	display: none;
+}
+
+html,
+body {
+	font-family: Vazirmatn, Tahoma, system-ui, -apple-system, sans-serif;
+}
+
+img {
+	user-select: none;
+	-webkit-user-drag: none;
+}

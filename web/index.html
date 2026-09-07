@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html dir="rtl" lang="fa">
+
+<head>
+	<meta charset="UTF-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+	<title>UNO</title>
+
+	<script src="https://cdn.tailwindcss.com"></script>
+	<script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+	<link rel="stylesheet" href="/static/css/app.css" />
+</head>
+
+<body class="bg-gray-950 text-white min-h-screen">
+	<div id="app" class="min-h-screen flex flex-col" v-cloak>
+		<nav class="bg-gray-900 border-b border-gray-800 px-4 py-2 flex items-center justify-between sticky top-0 z-20">
+			<div class="text-lg font-black tracking-wide">UNO</div>
+
+			<div class="flex items-center gap-3 text-sm">
+				<span :class="pingClass">
+					{{ t('ping') }}: {{ ping === null ? '—' : ping + ' ' + t('ms') }}
+				</span>
+
+				<span :class="connected ? 'text-green-400' : 'text-red-400'">
+					{{ connected ? t('connected') : t('disconnected') }}
+				</span>
+
+				<button class="px-2 py-1 rounded bg-gray-800 hover:bg-gray-700" @click="toggleLocale">
+					{{ locale === 'fa' ? 'English' : 'فارسی' }}
+				</button>
+			</div>
+		</nav>
+
+		<main class="flex-1">
+			<!-- Connecting -->
+			<div v-if="currentView === 'connecting'"
+				class="flex items-center justify-center min-h-[60vh] text-gray-300">
+				{{ t('connecting') }}
+			</div>
+
+			<!-- Nickname -->
+			<div v-if="currentView === 'nickname'" class="max-w-md mx-auto mt-16 px-4">
+				<div class="bg-gray-900 rounded-2xl p-6 space-y-4 shadow-xl border border-gray-800">
+					<h2 class="text-xl font-bold">{{ t('nickname') }}</h2>
+
+					<input v-model="nicknameInput"
+						class="w-full rounded-xl bg-gray-800 border border-gray-700 px-4 py-3 outline-none focus:border-yellow-400"
+						:placeholder="t('nicknamePlaceholder')" @keyup.enter="saveNickname" />
+
+					<button
+						class="w-full py-3 rounded-xl bg-yellow-500 text-black font-bold hover:bg-yellow-400 disabled:opacity-40"
+						:disabled="nicknameInput.trim() === ''" @click="saveNickname">
+						{{ t('saveNickname') }}
+					</button>
+				</div>
+			</div>
+
+			<!-- Home -->
+			<div v-if="currentView === 'home'" class="max-w-6xl mx-auto p-4 grid gap-6 lg:grid-cols-2">
+				<section class="bg-gray-900 rounded-2xl border border-gray-800 p-4 space-y-4 h-fit">
+					<h2 class="text-lg font-bold">{{ t('createChallenge') }}</h2>
+
+					<div class="space-y-1">
+						<label class="text-sm text-gray-300">{{ t('passwordOptional') }}</label>
+						<input v-model="createPassword" type="password"
+							class="w-full rounded-xl bg-gray-800 border border-gray-700 px-4 py-3 outline-none focus:border-yellow-400" />
+					</div>
+
+					<div class="space-y-1">
+						<label class="text-sm text-gray-300">
+							{{ t('initialCards') }}: {{ createCards }}
+						</label>
+						<input type="range" min="3" max="20" v-model.number="createCards"
+							class="w-full accent-yellow-400" />
+					</div>
+
+					<button class="w-full py-3 rounded-xl bg-green-600 font-bold hover:bg-green-500"
+						@click="createChallenge">
+						{{ t('create') }}
+					</button>
+				</section>
+
+				<section class="bg-gray-900 rounded-2xl border border-gray-800 p-4 space-y-4">
+					<div class="flex items-center justify-between">
+						<h2 class="text-lg font-bold">{{ t('pendingChallenges') }}</h2>
+						<button class="text-sm px-3 py-1 rounded-lg bg-gray-800 hover:bg-gray-700"
+							@click="refreshChallenges">
+							{{ t('refresh') }}
+						</button>
+					</div>
+
+					<div v-if="challenges.length === 0" class="text-gray-400">
+						{{ t('noChallenges') }}
+					</div>
+
+					<div v-for="ch in challenges" :key="ch.id"
+						class="bg-gray-800 rounded-2xl p-4 flex items-center justify-between gap-3 border border-gray-700">
+						<div class="min-w-0">
+							<div class="font-bold truncate">
+								{{ ch.creatorNickname }}
+								<span v-if="ch.hasPassword">🔒</span>
+							</div>
+							<div class="text-sm text-gray-300">
+								{{ ch.playerCount }}/{{ ch.maxPlayers || 10 }} ·
+								{{ t('initialCards') }}: {{ ch.initialCards }}
+							</div>
+						</div>
+
+						<button class="shrink-0 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 font-bold"
+							@click="joinChallenge(ch)">
+							{{ t('join') }}
+						</button>
+					</div>
+				</section>
+			</div>
+
+			<!-- Room lobby -->
+			<div v-if="currentView === 'room'" class="max-w-3xl mx-auto p-4">
+				<div class="bg-gray-900 rounded-2xl border border-gray-800 p-4 space-y-4">
+					<div class="flex items-center justify-between">
+						<h2 class="text-lg font-bold">{{ t('lobby') }}</h2>
+						<button class="px-3 py-2 rounded-xl bg-red-700 hover:bg-red-600" @click="leaveRoom">
+							{{ t('leave') }}
+						</button>
+					</div>
+
+					<div class="space-y-2">
+						<div v-for="p in room.players" :key="p.id"
+							class="flex items-center justify-between bg-gray-800 rounded-xl px-3 py-2 border border-gray-700">
+							<div class="flex items-center gap-2 min-w-0">
+								<span :class="p.connected ? 'text-green-400' : 'text-red-400'">●</span>
+								<span class="font-bold truncate">
+									{{ p.nickname }}
+								</span>
+								<span v-if="p.id === playerId" class="text-xs text-yellow-300">
+									({{ t('you') }})
+								</span>
+								<span v-if="p.isCreator">👑</span>
+							</div>
+
+							<button v-if="isCreator && p.id !== playerId"
+								class="px-2 py-1 rounded bg-red-700 hover:bg-red-600 text-xs" @click="kick(p.id)">
+								{{ t('kick') }}
+							</button>
+						</div>
+					</div>
+
+					<div v-if="isCreator" class="space-y-4">
+						<div class="space-y-1">
+							<label class="text-sm text-gray-300">
+								{{ t('initialCards') }}: {{ room.initialCards }}
+							</label>
+							<input type="range" min="3" max="20" :value="room.initialCards"
+								class="w-full accent-yellow-400" @change="updateN($event.target.value)" />
+						</div>
+
+						<button
+							class="w-full py-3 rounded-xl bg-green-600 font-bold hover:bg-green-500 disabled:opacity-40"
+							:disabled="!canStart" @click="startGame">
+							{{ t('startGame') }}
+						</button>
+					</div>
+
+					<div v-else class="text-gray-300">
+						{{ t('waiting') }}
+					</div>
+				</div>
+			</div>
+
+			<!-- Game -->
+			<div v-if="currentView === 'game' && game" class="flex flex-col h-[calc(100vh-52px)]">
+				<div class="flex-1 relative overflow-hidden">
+					<div class="absolute inset-0 flex items-center justify-center p-4">
+						<div class="relative w-[min(92vw,540px)] aspect-square">
+							<!-- Seats -->
+							<div v-for="seat in seats" :key="seat.id"
+								class="absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center gap-1"
+								:style="{ left: seat.x + '%', top: seat.y + '%' }">
+								<div class="px-3 py-2 rounded-xl text-center min-w-20"
+									:class="seat.isTurn ? 'bg-yellow-400 text-black' : 'bg-gray-800'">
+									<div class="text-sm font-bold truncate max-w-24">{{ seat.nickname }}</div>
+									<div class="text-xs opacity-80">{{ seat.handCount }}</div>
+								</div>
+
+								<div v-if="seat.id !== playerId && seat.handCount > 0" class="flex -space-x-2">
+									<img v-for="i in Math.min(seat.handCount, 5)" :key="i" src="/cards/card_back"
+										class="w-5 rounded-sm border border-gray-700" />
+								</div>
+							</div>
+
+							<!-- Center -->
+							<div
+								class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center gap-2">
+								<img v-if="game.topCard && game.topCard.id" :src="cardImageUrl(game.topCard)"
+									class="w-24 rounded-xl shadow-lg border border-white/20" />
+
+								<div v-if="game.stackMode !== 'none'" class="text-red-400 font-black text-lg">
+									{{ stackLabel }}
+								</div>
+
+								<div class="text-sm text-gray-200">
+									{{ t('activeColor') }}: {{ colorName(game.activeColor) }}
+								</div>
+
+								<div class="text-xs text-gray-400">
+									{{ game.direction === 1 ? t('directionClockwise') : t('directionCounterClockwise')
+									}}
+								</div>
+							</div>
+						</div>
+					</div>
+				</div>
+
+				<!-- Hand / actions -->
+				<div class="bg-gray-900 border-t border-gray-800 p-3 space-y-3">
+					<div v-if="isMyTurn" class="text-yellow-300 font-bold">
+						{{ t('yourTurn') }}
+					</div>
+
+					<div class="flex flex-wrap items-center gap-2">
+						<button v-if="canDraw" class="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 font-bold"
+							@click="drawCard">
+							{{ t('draw') }}
+						</button>
+
+						<button v-if="canPass" class="px-4 py-2 rounded-xl bg-gray-700 hover:bg-gray-600 font-bold"
+							@click="passTurn">
+							{{ t('pass') }}
+						</button>
+
+						<button v-if="canClaim" class="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 font-bold"
+							@click="claimStack">
+							{{ t('claimStack') }} {{ game.stackAmount || 0 }}
+						</button>
+					</div>
+
+					<div class="flex overflow-x-auto gap-2 pb-2">
+						<div v-for="card in hand" :key="card.id" class="shrink-0 transition"
+							:class="canPlay(card) ? 'cursor-pointer hover:-translate-y-2' : 'opacity-40'"
+							@click="clickCard(card)">
+							<img :src="cardImageUrl(card)" class="w-20 rounded-xl border border-white/10" />
+						</div>
+					</div>
+				</div>
+			</div>
+		</main>
+
+		<!-- Modal -->
+		<div v-if="modal" class="fixed inset-0 bg-black/70 z-30 flex items-center justify-center p-4">
+			<div class="bg-gray-900 rounded-2xl border border-gray-700 w-full max-w-sm p-4 space-y-4">
+				<!-- Password -->
+				<template v-if="modal.type === 'password'">
+					<h3 class="font-bold">{{ t('password') }}</h3>
+
+					<input v-model="passwordInput" type="password"
+						class="w-full rounded-xl bg-gray-800 border border-gray-700 px-4 py-3 outline-none focus:border-yellow-400"
+						@keyup.enter="submitPassword" />
+
+					<div class="flex gap-2">
+						<button class="flex-1 py-2 rounded-xl bg-gray-700 hover:bg-gray-600" @click="modal = null">
+							{{ t('cancel') }}
+						</button>
+						<button class="flex-1 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 font-bold"
+							@click="submitPassword">
+							{{ t('confirm') }}
+						</button>
+					</div>
+				</template>
+
+				<!-- Color -->
+				<template v-else-if="modal.type === 'color'">
+					<h3 class="font-bold">{{ t('chooseColor') }}</h3>
+
+					<div class="grid grid-cols-2 gap-2">
+						<button v-for="color in ['red', 'yellow', 'green', 'blue']" :key="color"
+							class="py-3 rounded-xl font-bold" :class="color === 'yellow' ? 'text-black' : 'text-white'"
+							:style="colorStyle(color)" @click="chooseColor(color)">
+							{{ t('color_' + color) }}
+						</button>
+					</div>
+
+					<button class="w-full py-2 rounded-xl bg-gray-700 hover:bg-gray-600" @click="modal = null">
+						{{ t('cancel') }}
+					</button>
+				</template>
+
+				<!-- Target -->
+				<template v-else-if="modal.type === 'target'">
+					<h3 class="font-bold">{{ t('chooseTarget') }}</h3>
+
+					<div class="space-y-2 max-h-64 overflow-y-auto">
+						<button v-for="p in targetPlayers" :key="p.id"
+							class="w-full py-3 rounded-xl bg-gray-800 hover:bg-gray-700 border border-gray-700"
+							@click="chooseTarget(p.id)">
+							{{ p.nickname }}
+							<span v-if="p.id === playerId">({{ t('you') }})</span>
+						</button>
+					</div>
+
+					<button class="w-full py-2 rounded-xl bg-gray-700 hover:bg-gray-600" @click="modal = null">
+						{{ t('cancel') }}
+					</button>
+				</template>
+			</div>
+		</div>
+
+		<!-- Game over -->
+		<div v-if="currentView === 'game' && game && game.phase === 'finished'"
+			class="fixed inset-0 bg-black/80 z-40 flex items-center justify-center p-4">
+			<div class="bg-gray-900 border border-gray-700 rounded-2xl p-6 w-full max-w-sm text-center space-y-4">
+				<h2 class="text-xl font-black">
+					{{ t('winner') }}: {{ winnerName }}
+				</h2>
+
+				<button class="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-500 font-bold" @click="leaveRoom">
+					{{ t('backToHome') }}
+				</button>
+			</div>
+		</div>
+
+		<!-- Toasts -->
+		<div class="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 space-y-2 w-[min(92vw,420px)]">
+			<div v-for="toast in toasts" :key="toast.id" class="bg-red-600 text-white px-4 py-3 rounded-xl shadow-lg">
+				{{ toast.text }}
+			</div>
+		</div>
+	</div>
+
+	<script src="/static/js/app.js"></script>
+</body>
+
+</html>
